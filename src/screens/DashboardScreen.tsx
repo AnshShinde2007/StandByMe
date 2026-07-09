@@ -9,10 +9,13 @@ import {
   TouchableOpacity,
   Text,
   useWindowDimensions,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { useKeepAwake } from 'expo-keep-awake';
+import { NavigationBar } from 'expo-navigation-bar';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useDashboardStore } from '../store/dashboardStore';
 import { useWidgetStore } from '../store/widgetStore';
@@ -46,8 +49,55 @@ export const DashboardScreen: React.FC = () => {
   const closeWidgetSettings = useEditorStore((s) => s.closeWidgetSettings);
   const { width, height: SCREEN_H } = useWindowDimensions();
 
-  // Prevent the device from sleeping while the dashboard is active
-  useKeepAwake();
+  // Navigation Bar Immersive Mode logic
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showNavigationBar = useCallback(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setHidden(false);
+    }
+  }, []);
+
+  const hideNavigationBar = useCallback(() => {
+    if (Platform.OS === 'android' && !isEditing) {
+      NavigationBar.setHidden(true);
+    }
+  }, [isEditing]);
+
+  const resetHideTimer = useCallback(() => {
+    if (isEditing) return; // Do not hide while editing
+    showNavigationBar();
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = setTimeout(() => {
+      hideNavigationBar();
+    }, 3000);
+  }, [isEditing, hideNavigationBar, showNavigationBar]);
+
+  useEffect(() => {
+    if (isEditing) {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      showNavigationBar();
+    } else {
+      resetHideTimer();
+    }
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [isEditing, resetHideTimer, showNavigationBar]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isEditing) {
+        resetHideTimer();
+      }
+      return () => {
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        showNavigationBar();
+      };
+    }, [isEditing, resetHideTimer, showNavigationBar])
+  );
 
   useEffect(() => {
     if (dashboard?.id) {
@@ -71,43 +121,37 @@ export const DashboardScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+      activateKeepAwakeAsync().catch(() => {});
+      
       return () => {
-        ScreenOrientation.unlockAsync();
+        ScreenOrientation.unlockAsync().catch(() => {});
+        deactivateKeepAwake().catch(() => {});
       };
     }, [])
   );
 
-  // Long-press detection → enter edit mode
+  // Swipe detection → switch dashboards (won't block child taps)
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-
-      onPanResponderGrant: (evt) => {
-        swipeStartX.current = evt.nativeEvent.pageX;
-        longPressTimer.current = setTimeout(() => {
-          enterEditMode();
-        }, 600);
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only capture the touch if it's a clear horizontal swipe
+        return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
       },
-
-      onPanResponderMove: (evt) => {
-        // Cancel long press if user moves
-        const dx = Math.abs(evt.nativeEvent.pageX - swipeStartX.current);
-        if (dx > 10 && longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
       },
-
-      onPanResponderRelease: (evt) => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-        const dx = evt.nativeEvent.pageX - swipeStartX.current;
-        if (Math.abs(dx) > Dimensions.get('window').width * 0.25) {
-          dx < 0 ? switchToNext() : switchToPrev();
+      onPanResponderGrant: () => {
+        resetHideTimer();
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        console.log("Swipe released", gestureState.dx);
+        if (gestureState.dx < -50) {
+          switchToNext();
+        } else if (gestureState.dx > 50) {
+          switchToPrev();
         }
       },
     })
@@ -130,28 +174,35 @@ export const DashboardScreen: React.FC = () => {
   const bg = dashboard.wallpaper;
 
   const content = (
-    <View style={styles.fill} {...(!isEditing ? panResponder.panHandlers : {})}>
-      <StatusBar hidden />
-      {dashboard && (
-        <WidgetGrid
-          dashboard={dashboard}
-          isEditing={isEditing}
-        />
-      )}
-      {/* Edit mode overlay bar */}
-      {isEditing && (
-        <EditorOverlay dashboard={dashboard} nav={nav} />
-      )}
-      
-      {/* Settings Modal Overlay */}
-      {editingSettingsWidgetId && dashboard && (
-        <WidgetSettingsModal
-          widgetId={editingSettingsWidgetId}
-          dashboardId={dashboard.id}
-          onClose={closeWidgetSettings}
-        />
-      )}
-    </View>
+    <Pressable 
+      style={styles.fill} 
+      onLongPress={enterEditMode} 
+      onPressIn={resetHideTimer}
+      delayLongPress={600}
+    >
+      <View style={styles.fill} {...(!isEditing ? panResponder.panHandlers : {})}>
+        <StatusBar hidden />
+        {dashboard && (
+          <WidgetGrid
+            dashboard={dashboard}
+            isEditing={isEditing}
+          />
+        )}
+        {/* Edit mode overlay bar */}
+        {isEditing && (
+          <EditorOverlay dashboard={dashboard} nav={nav} />
+        )}
+        
+        {/* Settings Modal Overlay */}
+        {editingSettingsWidgetId && dashboard && (
+          <WidgetSettingsModal
+            widgetId={editingSettingsWidgetId}
+            dashboardId={dashboard.id}
+            onClose={closeWidgetSettings}
+          />
+        )}
+      </View>
+    </Pressable>
   );
 
   if (bg) {
