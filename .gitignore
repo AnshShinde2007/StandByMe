@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local modules
+modules/*/android/build
+modules/*/android/.gradle
+modules/*/android/.cxx
+modules/*/ios/build/
+modules/*/ios/Pods/

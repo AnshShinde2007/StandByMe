@@ -157,6 +157,15 @@ export const WidgetContainer: React.FC<Props> = ({
     borderRadius: theme.cornerRadius,
     overflow: 'hidden',
     opacity: widget.opacity,
+    // Add subtle glass-like border for premium feel
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    // Premium diffused shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   };
 
   if (isEditing) {
@@ -168,12 +177,12 @@ export const WidgetContainer: React.FC<Props> = ({
             left: pan.x,
             top: pan.y,
             borderWidth: isSelected ? 2 : 1,
-            borderColor: isSelected ? theme.colors.accent : theme.colors.border,
-            shadowColor: theme.colors.accent,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: isSelected ? 0.5 : 0.2,
-            shadowRadius: 8,
-            elevation: isSelected ? 10 : 4,
+            borderColor: isSelected ? theme.colors.accent : 'rgba(255, 255, 255, 0.06)',
+            shadowColor: isSelected ? theme.colors.accent : '#000',
+            shadowOffset: { width: 0, height: isSelected ? 8 : 12 },
+            shadowOpacity: isSelected ? 0.4 : 0.15,
+            shadowRadius: isSelected ? 16 : 24,
+            elevation: isSelected ? 12 : 8,
           },
         ]}
         {...panResponder.panHandlers}
@@ -239,19 +248,24 @@ const styles = StyleSheet.create({
   },
   editControls: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 12,
+    right: 12,
     flexDirection: 'row',
-    gap: 6,
+    gap: 8,
     alignItems: 'center',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    borderRadius: 24, // Pill shape
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
   controlBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
