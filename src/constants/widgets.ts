@@ -94,10 +94,8 @@ export const WIDGET_REGISTRY: WidgetMeta[] = [
     displayName: 'Weather',
     description: 'Current weather conditions and forecast',
     icon: 'Cloud',
-    size: 'SMALL',
+    size: 'LARGE',
     defaultSettings: {
-      city: '',
-      apiKey: '',
       unit: 'metric',
       showFeelsLike: true,
       showHumidity: true,

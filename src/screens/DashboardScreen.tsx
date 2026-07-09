@@ -109,9 +109,8 @@ export const DashboardScreen: React.FC = () => {
           if (w.type === 'battery' && w.colSpan === 1 && w.rowSpan === 1) {
             state.updateWidgetPosition(w.id, dashboard.id, 2, w.row, 2, 2);
           }
-          // Auto-migrate music widgets to full size for dashboard
           const maxCols = dashboard.layoutColumns ?? 4;
-          if (w.type === 'music_controls' && (w.colSpan !== maxCols || w.rowSpan !== 4)) {
+          if ((w.type === 'music_controls' || w.type === 'weather') && (w.colSpan !== maxCols || w.rowSpan !== 4)) {
             state.updateWidgetPosition(w.id, dashboard.id, 0, 0, maxCols, 4);
           }
         });

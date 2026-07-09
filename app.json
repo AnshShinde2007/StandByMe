@@ -34,7 +34,9 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "BATTERY_STATS",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -43,6 +45,12 @@
     "plugins": [
       "expo-sqlite",
       "expo-screen-orientation",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow StandBy Me to use your location for weather."
+        }
+      ],
       [
         "expo-notifications",
         {
