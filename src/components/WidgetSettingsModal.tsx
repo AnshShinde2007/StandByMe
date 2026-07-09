@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Switch, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { WidgetRegistry } from '../engine/WidgetRegistry';
 import { useWidgetStore } from '../store/widgetStore';
@@ -9,6 +9,46 @@ interface Props {
   dashboardId: string;
   onClose: () => void;
 }
+
+// ─── Local-buffered text input ────────────────────────────────────────────────
+// Keeps a local copy of the value so every keystroke doesn't trigger a full
+// modal re-render. Flushes to the store only on blur / Return key.
+interface TextSettingRowProps {
+  settingId: string;
+  label: string;
+  storeValue: string;
+  onCommit: (key: string, value: string) => void;
+}
+
+const TextSettingRow: React.FC<TextSettingRowProps> = ({ settingId, label, storeValue, onCommit }) => {
+  const theme = useTheme();
+  const [local, setLocal] = useState(storeValue);
+
+  useEffect(() => { setLocal(storeValue); }, [storeValue]);
+
+  return (
+    <View style={localStyles.inputRow}>
+      <Text style={[localStyles.label, { color: theme.colors.text }]}>{label}</Text>
+      <TextInput
+        style={[localStyles.input, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text }]}
+        value={local}
+        onChangeText={setLocal}
+        onEndEditing={() => onCommit(settingId, local)}
+        onBlur={() => onCommit(settingId, local)}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="done"
+      />
+    </View>
+  );
+};
+
+const localStyles = StyleSheet.create({
+  inputRow: { marginBottom: 16 },
+  label: { fontSize: 15, fontWeight: '500', marginBottom: 8 },
+  input: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const WidgetSettingsModal: React.FC<Props> = ({ widgetId, dashboardId, onClose }) => {
   const theme = useTheme();
@@ -43,7 +83,7 @@ export const WidgetSettingsModal: React.FC<Props> = ({ widgetId, dashboardId, on
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {definition.settings.map((setting) => {
           const value = widget.settings[setting.id] ?? setting.defaultValue;
 
@@ -80,14 +120,13 @@ export const WidgetSettingsModal: React.FC<Props> = ({ widgetId, dashboardId, on
 
           if (setting.type === 'text' || setting.type === 'select') {
             return (
-              <View key={setting.id} style={styles.inputRow}>
-                <Text style={[styles.label, { color: theme.colors.text }]}>{setting.label}</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text }]}
-                  value={String(value)}
-                  onChangeText={(v) => handleChange(setting.id, v)}
-                />
-              </View>
+              <TextSettingRow
+                key={setting.id}
+                settingId={setting.id}
+                label={setting.label}
+                storeValue={String(value)}
+                onCommit={handleChange}
+              />
             );
           }
 

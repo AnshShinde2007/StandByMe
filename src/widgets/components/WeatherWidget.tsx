@@ -1,9 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import * as Location from 'expo-location';
 import axios from 'axios';
 import { Widget, WeatherData } from '../../types';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useWidgetRefresh } from '../../engine/RefreshManager';
+import { WeatherBackground } from './WeatherBackground';
 
 interface Props { widget: Widget }
 
@@ -15,11 +17,11 @@ const WEATHER_ICONS: Record<string, string> = {
   '50d': '🌫️', '50n': '🌫️',
 };
 
+const OPENWEATHER_API_KEY = process.env.EXPO_PUBLIC_OPENWEATHER_API_KEY ?? '';
+
 export const WeatherWidget: React.FC<Props> = ({ widget }) => {
   const theme = useTheme();
   const settings = widget.settings as {
-    city?: string;
-    apiKey?: string;
     unit?: 'metric' | 'imperial';
     showFeelsLike?: boolean;
     showHumidity?: boolean;
@@ -29,18 +31,28 @@ export const WeatherWidget: React.FC<Props> = ({ widget }) => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   const fetchWeather = useCallback(async () => {
-    if (!settings.city || !settings.apiKey) {
-      setError('Set city & API key in widget settings');
-      return;
-    }
     setLoading(true);
     setError(null);
+    setPermissionDenied(false);
     try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+        setLoading(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = location.coords;
       const unit = settings.unit ?? 'metric';
+
       const res = await axios.get(
-        `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(settings.city)}&appid=${settings.apiKey}&units=${unit}`
+        `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${OPENWEATHER_API_KEY}&units=${unit}`
       );
       const d = res.data;
       setWeather({
@@ -60,7 +72,10 @@ export const WeatherWidget: React.FC<Props> = ({ widget }) => {
     } finally {
       setLoading(false);
     }
-  }, [settings.city, settings.apiKey, settings.unit]);
+  }, [settings.unit]);
+
+  // Fetch immediately on mount
+  useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
   useWidgetRefresh(
     (widget.refreshInterval || 600) * 1000,
@@ -69,6 +84,17 @@ export const WeatherWidget: React.FC<Props> = ({ widget }) => {
 
   const unit = settings.unit === 'imperial' ? '°F' : '°C';
   const windUnit = settings.unit === 'imperial' ? 'mph' : 'm/s';
+
+  if (permissionDenied) {
+    return (
+      <View style={styles.center}>
+        <Text style={[styles.errorText, { color: theme.colors.textMuted }]}>📍 Location access needed</Text>
+        <TouchableOpacity onPress={fetchWeather} style={[styles.retryBtn, { backgroundColor: theme.colors.accent }]}>
+          <Text style={{ color: theme.colors.onAccent, fontSize: 12 }}>Grant Access</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (loading && !weather) {
     return (
@@ -95,47 +121,51 @@ export const WeatherWidget: React.FC<Props> = ({ widget }) => {
 
   return (
     <View style={[styles.container, { backgroundColor: 'transparent' }]}>
-      <View style={styles.main}>
-        <Text style={styles.icon}>{icon}</Text>
-        <View>
-          <Text style={[styles.temp, { color: theme.colors.text }]}>
-            {weather.temp}{unit}
-          </Text>
-          <Text style={[styles.city, { color: theme.colors.textMuted }]}>{weather.city}</Text>
-          <Text style={[styles.desc, { color: theme.colors.textSubtle }]} numberOfLines={1}>
-            {weather.description}
-          </Text>
+      <WeatherBackground iconCode={weather.icon} />
+      <View style={styles.content}>
+        <View style={styles.main}>
+          <Text style={styles.icon}>{icon}</Text>
+          <View>
+            <Text style={[styles.temp, { color: '#fff' }]}>
+              {weather.temp}{unit}
+            </Text>
+            <Text style={[styles.city, { color: 'rgba(255,255,255,0.8)' }]}>{weather.city}</Text>
+            <Text style={[styles.desc, { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>
+              {weather.description}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={[styles.details, { borderTopColor: theme.colors.border }]}>
-        <Text style={[styles.detailText, { color: theme.colors.textMuted }]}>
-          H:{weather.high}{unit} L:{weather.low}{unit}
-        </Text>
-        {settings.showHumidity && (
-          <Text style={[styles.detailText, { color: theme.colors.textMuted }]}>
-            💧{weather.humidity}%
+        <View style={[styles.details, { borderTopColor: 'rgba(255,255,255,0.15)' }]}>
+          <Text style={[styles.detailText, { color: 'rgba(255,255,255,0.8)' }]}>
+            H:{weather.high}{unit} L:{weather.low}{unit}
           </Text>
-        )}
-        {settings.showWind && (
-          <Text style={[styles.detailText, { color: theme.colors.textMuted }]}>
-            🌬️{weather.windSpeed}{windUnit}
-          </Text>
-        )}
+          {settings.showHumidity && (
+            <Text style={[styles.detailText, { color: 'rgba(255,255,255,0.8)' }]}>
+              💧{weather.humidity}%
+            </Text>
+          )}
+          {settings.showWind && (
+            <Text style={[styles.detailText, { color: 'rgba(255,255,255,0.8)' }]}>
+              🌬️{weather.windSpeed}{windUnit}
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 14 },
+  container: { flex: 1 },
+  content: { flex: 1, padding: 24, justifyContent: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 12 },
-  main: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  icon: { fontSize: 44 },
-  temp: { fontSize: 38, fontWeight: '200' },
-  city: { fontSize: 14, fontWeight: '500', marginTop: 2 },
-  desc: { fontSize: 12, textTransform: 'capitalize', marginTop: 2 },
-  details: { flexDirection: 'row', gap: 12, paddingTop: 8, borderTopWidth: 1, flexWrap: 'wrap' },
-  detailText: { fontSize: 12 },
+  main: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 24 },
+  icon: { fontSize: 80 },
+  temp: { fontSize: 64, fontWeight: '200' },
+  city: { fontSize: 24, fontWeight: '500', marginTop: 4, textAlign: 'center' },
+  desc: { fontSize: 18, textTransform: 'capitalize', marginTop: 4, textAlign: 'center' },
+  details: { flexDirection: 'row', gap: 20, paddingTop: 16, borderTopWidth: 1, flexWrap: 'wrap', justifyContent: 'center' },
+  detailText: { fontSize: 16 },
   errorText: { fontSize: 13, textAlign: 'center', marginBottom: 8 },
   retryBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
 });
