@@ -1,0 +1,6 @@
+{
+  "name": "expo-media-session",
+  "version": "1.0.0",
+  "description": "Android MediaSession bridge for StandBy Me",
+  "main": "index.ts"
+}

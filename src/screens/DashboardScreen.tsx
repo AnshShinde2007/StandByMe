@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { useKeepAwake } from 'expo-keep-awake';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useDashboardStore } from '../store/dashboardStore';
 import { useWidgetStore } from '../store/widgetStore';
@@ -45,6 +46,9 @@ export const DashboardScreen: React.FC = () => {
   const closeWidgetSettings = useEditorStore((s) => s.closeWidgetSettings);
   const { width, height: SCREEN_H } = useWindowDimensions();
 
+  // Prevent the device from sleeping while the dashboard is active
+  useKeepAwake();
+
   useEffect(() => {
     if (dashboard?.id) {
       loadWidgets(dashboard.id).then(() => {
@@ -54,6 +58,11 @@ export const DashboardScreen: React.FC = () => {
         widgets.forEach((w) => {
           if (w.type === 'battery' && w.colSpan === 1 && w.rowSpan === 1) {
             state.updateWidgetPosition(w.id, dashboard.id, 2, w.row, 2, 2);
+          }
+          // Auto-migrate music widgets to full size for dashboard
+          const maxCols = dashboard.layoutColumns ?? 4;
+          if (w.type === 'music_controls' && (w.colSpan !== maxCols || w.rowSpan !== 4)) {
+            state.updateWidgetPosition(w.id, dashboard.id, 0, 0, maxCols, 4);
           }
         });
       });
@@ -148,6 +157,8 @@ export const DashboardScreen: React.FC = () => {
   if (bg) {
     return (
       <ImageBackground source={{ uri: bg }} style={styles.fill} resizeMode="cover">
+        {/* Subtle dark overlay to make widgets pop against the wallpaper */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]} />
         {content}
       </ImageBackground>
     );
@@ -164,39 +175,48 @@ export const DashboardScreen: React.FC = () => {
 const EditorOverlay: React.FC<{ dashboard: Dashboard | any; nav: Nav }> = ({ dashboard, nav }) => {
   const theme = useTheme();
   const exitEditMode = useEditorStore((s) => s.exitEditMode);
-  const openWidgetPicker = useEditorStore((s) => s.openWidgetPicker);
 
   return (
-    <View style={[styles.editorBar, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
-      <TouchableOpacity
-        style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
-        onPress={() => {
-          if (dashboard?.id) nav.navigate('WidgetPicker', { dashboardId: dashboard.id });
-        }}
-      >
-        <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>＋ Widget</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
-        onPress={() => {
-          if (dashboard?.id)
-            nav.navigate('ThemeEditor', { dashboardId: dashboard.id, themeId: dashboard.themeId });
-        }}
-      >
-        <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>🎨 Theme</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
-        onPress={() => nav.navigate('Settings')}
-      >
-        <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>⚙️ Settings</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.editorBtn, { backgroundColor: theme.colors.accent }]}
-        onPress={exitEditMode}
-      >
-        <Text style={[styles.editorBtnText, { color: theme.colors.onAccent }]}>✓ Done</Text>
-      </TouchableOpacity>
+    <View style={styles.editorOverlayContainer}>
+      <View style={[
+        styles.editorPill, 
+        { 
+          backgroundColor: theme.colors.surface, 
+          borderColor: theme.colors.border,
+          shadowColor: '#000',
+        }
+      ]}>
+        <TouchableOpacity
+          style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
+          onPress={() => {
+            if (dashboard?.id) nav.navigate('WidgetPicker', { dashboardId: dashboard.id });
+          }}
+        >
+          <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>＋ Add</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
+          onPress={() => {
+            if (dashboard?.id)
+              nav.navigate('ThemeEditor', { dashboardId: dashboard.id, themeId: dashboard.themeId });
+          }}
+        >
+          <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>🎨 Theme</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.editorBtn, { backgroundColor: theme.colors.surfaceAlt }]}
+          onPress={() => nav.navigate('Settings')}
+        >
+          <Text style={[styles.editorBtnText, { color: theme.colors.text }]}>⚙️ Settings</Text>
+        </TouchableOpacity>
+        <View style={styles.divider} />
+        <TouchableOpacity
+          style={[styles.editorBtn, { backgroundColor: theme.colors.accent }]}
+          onPress={exitEditMode}
+        >
+          <Text style={[styles.editorBtnText, { color: theme.colors.onAccent }]}>✓ Done</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -205,22 +225,37 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
   createBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
-  editorBar: {
+  editorOverlayContainer: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 32,
     left: 0,
     right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editorPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 32, // Perfect pill shape
+    borderWidth: 1,
+    elevation: 20,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
   },
   editorBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24, // Matches the pill
   },
-  editorBtnText: { fontWeight: '600', fontSize: 14 },
+  editorBtnText: { fontWeight: '700', fontSize: 14 },
+  divider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(150, 150, 150, 0.3)',
+    marginHorizontal: 4,
+  },
 });

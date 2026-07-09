@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      NotificationListenerService is required to obtain a valid ComponentName
+      for MediaSessionManager.getActiveSessions(). Without it, the call throws
+      SecurityException on Android 5.1+. This service does not intercept
+      notifications — it is used purely as a token to query active media sessions.
+    -->
+    <service
+      android:name="expo.modules.mediasession.MediaNotificationListenerService"
+      android:label="StandBy Me Media Bridge"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

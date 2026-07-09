@@ -1,5 +1,6 @@
 import { registerRootComponent } from 'expo';
 import React from 'react';
+import { useKeepAwake } from 'expo-keep-awake';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ThemeProvider } from './src/theme/ThemeProvider';
@@ -11,6 +12,7 @@ function AppContent() {
 }
 
 export default function App() {
+  useKeepAwake();
   return (
     <SafeAreaProvider>
       <ThemeProvider>
