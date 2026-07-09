@@ -7,8 +7,18 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withTiming, 
+  withSpring, 
+  FadeIn,
+  runOnJS
+} from 'react-native-reanimated';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { Widget } from '../../types';
 import { useTheme } from '../../theme/ThemeProvider';
+import { Play, Pause, SkipBack, SkipForward, Music, Lock, Headphones, Speaker, Bluetooth } from 'lucide-react-native';
 import {
   play,
   pause,
@@ -43,6 +53,27 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+const AnimatedPressable = Animated.createAnimatedComponent(TouchableOpacity);
+
+function AnimatedButton({ children, onPress, style, scaleTo = 0.85, ...props }: any) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(scaleTo, { damping: 15 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 15 }); }}
+      style={[style, animatedStyle]}
+      activeOpacity={1}
+      {...props}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
+
 // ─── Widget ─────────────────────────────────────────────────────────────────
 
 export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
@@ -51,14 +82,18 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
 
   const [hasPermission, setHasPermission] = useState<boolean>(false);
   const [mediaState, setMediaState] = useState<MediaState | null>(null);
-  // Local position interpolates between native updates to keep the bar smooth
   const [localPosition, setLocalPosition] = useState(0);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Animated values
+  const progressAnim = useSharedValue(0);
+  const isDragging = useSharedValue(false);
+  const trackWidth = useSharedValue(0);
 
   // ── Permission check (also runs on foreground) ───────────────────────────
 
   const checkPermission = useCallback(() => {
-    if (Platform.OS !== 'android') return; // module is Android-only
+    if (Platform.OS !== 'android') return;
     try {
       const granted = checkNotificationAccess();
       setHasPermission(granted);
@@ -69,8 +104,6 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
 
   useEffect(() => {
     checkPermission();
-    // Poll permission every 2 s so the widget reacts quickly after the user
-    // grants access in the system settings screen and returns to the app.
     const permTimer = setInterval(checkPermission, 2000);
     return () => clearInterval(permTimer);
   }, [checkPermission]);
@@ -81,7 +114,6 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     if (!hasPermission) return;
 
     const subscription = addMediaUpdateListener((state) => {
-      // A title-less state means no active session
       if (!state.title) {
         setMediaState(null);
         setLocalPosition(0);
@@ -119,6 +151,18 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     };
   }, [mediaState?.isPlaying, mediaState?.duration]);
 
+  // Update animated progress bar unless user is dragging
+  useEffect(() => {
+    if (mediaState && mediaState.duration > 0 && !isDragging.value) {
+      const currentRatio = localPosition / mediaState.duration;
+      if (mediaState.isPlaying) {
+        progressAnim.value = withTiming(currentRatio, { duration: 1000 });
+      } else {
+        progressAnim.value = currentRatio;
+      }
+    }
+  }, [localPosition, mediaState?.isPlaying, mediaState?.duration]);
+
   // ── Optimistic play/pause toggle ─────────────────────────────────────────
 
   const handlePlayPause = useCallback(() => {
@@ -128,7 +172,6 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     } else {
       play();
     }
-    // Optimistic update — native callback will confirm shortly
     setMediaState((prev) => prev ? { ...prev, isPlaying: !prev.isPlaying } : prev);
   }, [mediaState]);
 
@@ -142,14 +185,46 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     setLocalPosition(pos);
   }, [mediaState]);
 
-  // ── Render: Permission gate ───────────────────────────────────────────────
+  // ── Slider Gestures ──────────────────────────────────────────────────────
+
+  const panGesture = Gesture.Pan()
+    .onBegin(() => {
+      isDragging.value = true;
+    })
+    .onUpdate((e) => {
+      if (trackWidth.value > 0) {
+        const p = Math.max(0, Math.min(1, e.x / trackWidth.value));
+        progressAnim.value = p;
+      }
+    })
+    .onEnd((e) => {
+      if (trackWidth.value > 0) {
+        const p = Math.max(0, Math.min(1, e.x / trackWidth.value));
+        runOnJS(handleSeek)(p);
+      }
+      isDragging.value = false;
+    });
+
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressAnim.value * 100}%`,
+  }));
+
+  const thumbStyle = useAnimatedStyle(() => {
+    return {
+      left: `${progressAnim.value * 100}%`,
+      transform: [
+        { translateX: -8 },
+        { scale: isDragging.value ? withSpring(1.5) : withSpring(1) }
+      ]
+    };
+  });
+
+  // ── Render: Empty states ────────────────────────────────────────────────
 
   if (Platform.OS !== 'android') {
     return (
       <View style={[styles.container, styles.emptyContainer]}>
-        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-          Android only
-        </Text>
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>Android only</Text>
       </View>
     );
   }
@@ -158,37 +233,29 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     return (
       <View style={[styles.container, styles.emptyContainer, { backgroundColor: 'transparent' }]}>
         <View style={[styles.emptyIconBg, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <Text style={styles.emptyIconText}>🔒</Text>
+          <Lock color={theme.colors.text} size={48} />
         </View>
-        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-          Access Required
-        </Text>
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>Access Required</Text>
         <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
           Grant Notification Access to control media playback.
         </Text>
-        <TouchableOpacity
+        <AnimatedButton
           style={[styles.grantBtn, { backgroundColor: theme.colors.accent }]}
           onPress={promptNotificationAccess}
         >
-          <Text style={[styles.grantBtnText, { color: theme.colors.onAccent }]}>
-            Open Settings
-          </Text>
-        </TouchableOpacity>
+          <Text style={[styles.grantBtnText, { color: theme.colors.onAccent }]}>Open Settings</Text>
+        </AnimatedButton>
       </View>
     );
   }
-
-  // ── Render: No Media ──────────────────────────────────────────────────────
 
   if (!mediaState) {
     return (
       <View style={[styles.container, styles.emptyContainer, { backgroundColor: 'transparent' }]}>
         <View style={[styles.emptyIconBg, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <Text style={styles.emptyIconText}>🎵</Text>
+          <Music color={theme.colors.text} size={48} />
         </View>
-        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-          No media playing
-        </Text>
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No media playing</Text>
         <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
           Start music to control playback.
         </Text>
@@ -198,15 +265,17 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
 
   // ── Render: Playing ───────────────────────────────────────────────────────
 
-  const { title, artist, album, artwork, duration, isPlaying } = mediaState;
-  const progress = duration > 0 ? Math.min(localPosition / duration, 1) : 0;
-  const artRadius = settings.roundedArtwork !== false ? 12 : 4;
+  const { title, artist, artwork, duration, isPlaying, outputDeviceType, outputDeviceName } = mediaState;
 
   return (
     <View style={[styles.container, { backgroundColor: 'transparent' }]}>
       {/* Left: Album Art */}
       <View style={styles.leftColumn}>
-        <View style={[styles.artContainer, { backgroundColor: theme.colors.surfaceAlt }]}>
+        <Animated.View 
+          key={artwork || 'empty'}
+          entering={FadeIn.duration(400)} 
+          style={[styles.artContainer, { backgroundColor: theme.colors.surfaceAlt }]}
+        >
           {artwork ? (
             <Image
               source={{ uri: artwork }}
@@ -214,9 +283,9 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
               resizeMode="cover"
             />
           ) : (
-            <Text style={styles.artPlaceholderText}>🎵</Text>
+            <Music color={theme.colors.textMuted} size={64} />
           )}
-        </View>
+        </Animated.View>
       </View>
 
       {/* Right: Info and Controls */}
@@ -225,79 +294,81 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
         {/* Top: Info */}
         <View style={styles.infoArea}>
           <View style={styles.deviceRow}>
-            <Text style={styles.deviceIcon}>🎧</Text>
+            <Music color={theme.colors.textMuted} size={14} />
+            <Text style={[styles.deviceSeparator, { color: theme.colors.textMuted }]}>•</Text>
+            {outputDeviceType === 'Bluetooth' ? (
+              <Bluetooth color={theme.colors.textMuted} size={14} />
+            ) : outputDeviceType === 'Wired' ? (
+              <Headphones color={theme.colors.textMuted} size={14} />
+            ) : (
+              <Speaker color={theme.colors.textMuted} size={14} />
+            )}
             <Text style={[styles.deviceName, { color: theme.colors.textMuted }]}>
-              {mediaState.packageName === 'com.spotify.music' ? 'Spotify' : 
-               mediaState.packageName === 'com.google.android.apps.youtube.music' ? 'YouTube Music' : 
-               'Local Media'}
+              {outputDeviceName || 'Speaker'}
             </Text>
           </View>
-          <Text
+          
+          <Animated.Text
+            key={title}
+            entering={FadeIn.duration(300)}
             style={[styles.titleText, { color: theme.colors.text }]}
             numberOfLines={1}
             ellipsizeMode="tail"
           >
             {title}
-          </Text>
+          </Animated.Text>
+          
           {settings.showArtist !== false && !!artist && (
-            <Text
-              style={[styles.artistText, { color: theme.colors.textMuted }]}
+            <Animated.Text
+              key={artist}
+              entering={FadeIn.duration(300)}
+              style={[styles.artistText, { color: theme.colors.text }]}
               numberOfLines={1}
               ellipsizeMode="tail"
             >
               {artist}
-            </Text>
+            </Animated.Text>
           )}
         </View>
 
         {/* Middle: Transport Controls */}
         <View style={styles.controlsArea}>
-          <TouchableOpacity
-            style={styles.ctrlBtn}
-            onPress={handlePrevious}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.ctrlIcon, { color: theme.colors.text }]}>⏮</Text>
-          </TouchableOpacity>
+          <AnimatedButton style={styles.ctrlBtn} onPress={handlePrevious}>
+            <SkipBack color={theme.colors.text} fill={theme.colors.text} size={24} />
+          </AnimatedButton>
 
-          <TouchableOpacity
-            style={[
-              styles.ctrlBtnLg, 
-              { backgroundColor: theme.colors.text } // solid contrasting background for the 'O'
-            ]}
+          <AnimatedButton
+            style={[styles.ctrlBtnLg, { backgroundColor: theme.colors.accent }]}
             onPress={handlePlayPause}
-            activeOpacity={0.7}
+            scaleTo={0.9}
           >
-            <Text style={[styles.ctrlIconLg, { color: theme.colors.background }]}>
-              {isPlaying ? '⏸' : '▶️'}
-            </Text>
-          </TouchableOpacity>
+            {isPlaying ? (
+              <Pause color={theme.colors.onAccent} fill={theme.colors.onAccent} size={36} />
+            ) : (
+              <Play color={theme.colors.onAccent} fill={theme.colors.onAccent} size={36} style={{ marginLeft: 4 }} />
+            )}
+          </AnimatedButton>
 
-          <TouchableOpacity
-            style={styles.ctrlBtn}
-            onPress={handleNext}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.ctrlIcon, { color: theme.colors.text }]}>⏭</Text>
-          </TouchableOpacity>
+          <AnimatedButton style={styles.ctrlBtn} onPress={handleNext}>
+            <SkipForward color={theme.colors.text} fill={theme.colors.text} size={24} />
+          </AnimatedButton>
         </View>
 
         {/* Bottom: Progress Bar */}
         {settings.showProgressBar !== false && (
           <View style={styles.progressArea}>
-            <View
-              style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}
-            >
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${progress * 100}%`,
-                    backgroundColor: theme.colors.text, // highly visible progress fill
-                  },
-                ]}
-              />
-            </View>
+            <GestureDetector gesture={panGesture}>
+              <View 
+                style={styles.progressHitSlop}
+                onLayout={(e) => { trackWidth.value = e.nativeEvent.layout.width; }}
+              >
+                <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
+                  <Animated.View style={[styles.progressFill, { backgroundColor: theme.colors.text }, progressStyle]} />
+                  <Animated.View style={[styles.progressThumb, { backgroundColor: theme.colors.text }, thumbStyle]} />
+                </View>
+              </View>
+            </GestureDetector>
+            
             <View style={styles.timeRow}>
               <Text style={[styles.timeText, { color: theme.colors.textMuted }]}>
                 {formatTime(localPosition)}
@@ -308,7 +379,6 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
             </View>
           </View>
         )}
-
       </View>
     </View>
   );
@@ -319,9 +389,9 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16, // Reduced from 24 to give more room
+    padding: 20,
     flexDirection: 'row',
-    gap: 20, // Reduced from 32 to pull the right side further left
+    gap: 24,
     alignItems: 'center',
   },
   leftColumn: {
@@ -331,46 +401,47 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   artContainer: {
-    height: '100%', // Bound by height so it never clips vertically!
+    height: '100%',
     aspectRatio: 1,
-    maxWidth: 320, // Prevent it from becoming absurdly large on ultra-wide screens
+    maxWidth: 320,
     maxHeight: 320,
-    borderRadius: 24,
+    borderRadius: 32,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
+    elevation: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
   },
   artImage: {
     width: '100%',
     height: '100%',
   },
-  artPlaceholderText: {
-    fontSize: 64,
-  },
   rightColumn: {
     flex: 1.2,
     height: '100%',
-    justifyContent: 'space-between', // Naturally spreads items to fit the exact screen height
-    paddingVertical: 12,
+    justifyContent: 'center',
+    gap: 28,
+    paddingVertical: 8,
   },
   infoArea: {
     width: '100%',
     alignItems: 'center',
+    gap: 4,
   },
   deviceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     marginBottom: 8,
+    opacity: 0.8,
   },
-  deviceIcon: {
-    fontSize: 16,
+  deviceSeparator: {
+    fontSize: 14,
+    marginHorizontal: 2,
   },
   deviceName: {
     fontSize: 14,
@@ -379,32 +450,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   titleText: {
-    fontSize: 28,
+    fontSize: 34,
     fontWeight: '800',
-    marginBottom: 4,
     textAlign: 'center',
   },
   artistText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '500',
     textAlign: 'center',
+    opacity: 0.7,
   },
   controlsArea: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 32,
+    gap: 48,
   },
   ctrlBtn: {
     padding: 12,
   },
-  ctrlIcon: {
-    fontSize: 32,
-  },
   ctrlBtnLg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
@@ -413,21 +481,38 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
   },
-  ctrlIconLg: {
-    fontSize: 30,
-  },
   progressArea: {
     width: '100%',
-    gap: 8,
+    gap: 12,
+    paddingHorizontal: 8,
+  },
+  progressHitSlop: {
+    paddingVertical: 12,
+    justifyContent: 'center',
   },
   progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
+    height: 8,
+    borderRadius: 4,
+    width: '100%',
   },
   progressFill: {
-    height: 6,
-    borderRadius: 3,
+    height: 8,
+    borderRadius: 4,
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
+  progressThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    position: 'absolute',
+    top: -4,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   timeRow: {
     flexDirection: 'row',
@@ -451,9 +536,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-  },
-  emptyIconText: {
-    fontSize: 48,
   },
   emptyTitle: {
     fontSize: 24,

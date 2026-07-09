@@ -235,7 +235,9 @@ class ExpoMediaSessionModule : Module() {
                 "duration" to 0,
                 "position" to 0,
                 "isPlaying" to false,
-                "packageName" to ""
+                "packageName" to "",
+                "outputDeviceType" to "Speaker",
+                "outputDeviceName" to "Speaker"
             ))
             return
         }
@@ -254,6 +256,52 @@ class ExpoMediaSessionModule : Module() {
         // Encode album art as a data URI if available
         val artworkUri = encodeArtwork(metadata)
 
+        val reactContext = appContext.reactContext
+        var outputDeviceTypeStr = "Speaker"
+        var outputDeviceNameStr = "Speaker"
+        if (reactContext != null) {
+            val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (audioManager != null) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    val devices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                    for (device in devices) {
+                        when (device.type) {
+                            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> {
+                                outputDeviceTypeStr = "Bluetooth"
+                                val name = device.productName?.toString()?.trim()
+                                outputDeviceNameStr = if (!name.isNullOrEmpty()) name else "Bluetooth Audio"
+                                break
+                            }
+                            android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                            android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> {
+                                outputDeviceTypeStr = "Wired"
+                                val name = device.productName?.toString()?.trim()
+                                outputDeviceNameStr = if (!name.isNullOrEmpty()) name else "Wired Headset"
+                                break
+                            }
+                            android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+                            android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> {
+                                outputDeviceTypeStr = "Wired"
+                                val name = device.productName?.toString()?.trim()
+                                outputDeviceNameStr = if (!name.isNullOrEmpty()) name else "USB Audio"
+                                break
+                            }
+                        }
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    if (audioManager.isBluetoothA2dpOn) {
+                        outputDeviceTypeStr = "Bluetooth"
+                        outputDeviceNameStr = "Bluetooth Audio"
+                    } else if (audioManager.isWiredHeadsetOn) {
+                        outputDeviceTypeStr = "Wired"
+                        outputDeviceNameStr = "Wired Headset"
+                    }
+                }
+            }
+        }
+
         sendEvent("onMediaUpdate", mapOf(
             "title"       to title,
             "artist"      to artist,
@@ -262,7 +310,9 @@ class ExpoMediaSessionModule : Module() {
             "duration"    to (durationMs / 1000).toInt(),
             "position"    to (positionMs / 1000).toInt(),
             "isPlaying"   to isPlaying,
-            "packageName" to controller.packageName
+            "packageName" to controller.packageName,
+            "outputDeviceType" to outputDeviceTypeStr,
+            "outputDeviceName" to outputDeviceNameStr
         ))
     }
 

@@ -19,6 +19,10 @@ export interface MediaState {
   isPlaying: boolean;
   /** Package name of the media app, e.g. "com.spotify.music" */
   packageName: string;
+  /** Currently active audio route/device type, e.g. "Bluetooth", "Wired", "Speaker" */
+  outputDeviceType?: string;
+  /** Actual name of the audio device, e.g. "AirPods", "Speaker" */
+  outputDeviceName?: string;
 }
 
 // ─── Playback Commands ────────────────────────────────────────────────────────
