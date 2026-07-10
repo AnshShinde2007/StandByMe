@@ -8,6 +8,7 @@ import { getDb } from './schema';
 const rowToDashboard = (row: Record<string, unknown>): Dashboard => ({
   id: row.id as string,
   name: row.name as string,
+  icon: (row.icon as string) || 'LayoutDashboard',
   themeId: row.theme_id as string,
   layoutColumns: (row.layout_columns as number) as LayoutColumns,
   wallpaper: row.wallpaper as string | null,
@@ -39,11 +40,12 @@ export const dashboardRepo = {
     const db = getDb();
     await db.runAsync(
       `INSERT INTO dashboards
-        (id, name, theme_id, layout_columns, wallpaper, automation_rules, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, icon, theme_id, layout_columns, wallpaper, automation_rules, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         dashboard.id,
         dashboard.name,
+        dashboard.icon,
         dashboard.themeId,
         dashboard.layoutColumns,
         dashboard.wallpaper ?? null,
@@ -59,11 +61,12 @@ export const dashboardRepo = {
     const db = getDb();
     await db.runAsync(
       `UPDATE dashboards SET
-        name = ?, theme_id = ?, layout_columns = ?, wallpaper = ?,
+        name = ?, icon = ?, theme_id = ?, layout_columns = ?, wallpaper = ?,
         automation_rules = ?, sort_order = ?, updated_at = ?
        WHERE id = ?`,
       [
         dashboard.name,
+        dashboard.icon,
         dashboard.themeId,
         dashboard.layoutColumns,
         dashboard.wallpaper ?? null,

@@ -130,6 +130,10 @@ class ExpoMediaSessionModule : Module() {
             mediaController?.transportControls?.seekTo(positionSeconds * 1000L)
         }
 
+        Function("setVolume") { volume: Int ->
+            mediaController?.setVolumeTo(volume, 0)
+        }
+
         // ── Permission Helpers ──────────────────────────────────────────────────
 
         Function("checkNotificationAccess") { ->
@@ -237,7 +241,9 @@ class ExpoMediaSessionModule : Module() {
                 "isPlaying" to false,
                 "packageName" to "",
                 "outputDeviceType" to "Speaker",
-                "outputDeviceName" to "Speaker"
+                "outputDeviceName" to "Speaker",
+                "volume" to 0,
+                "maxVolume" to 0
             ))
             return
         }
@@ -252,6 +258,10 @@ class ExpoMediaSessionModule : Module() {
         val durationMs  = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
         val positionMs  = state?.position ?: 0L
         val isPlaying   = state?.state == PlaybackState.STATE_PLAYING
+
+        val playbackInfo = controller.playbackInfo
+        val volume = playbackInfo?.currentVolume ?: 0
+        val maxVolume = playbackInfo?.maxVolume ?: 0
 
         // Encode album art as a data URI if available
         val artworkUri = encodeArtwork(metadata)
@@ -312,7 +322,9 @@ class ExpoMediaSessionModule : Module() {
             "isPlaying"   to isPlaying,
             "packageName" to controller.packageName,
             "outputDeviceType" to outputDeviceTypeStr,
-            "outputDeviceName" to outputDeviceNameStr
+            "outputDeviceName" to outputDeviceNameStr,
+            "volume"      to volume,
+            "maxVolume"   to maxVolume
         ))
     }
 
