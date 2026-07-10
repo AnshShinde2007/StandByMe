@@ -16,7 +16,7 @@ interface DashboardState {
   // Actions
   loadDashboards: () => Promise<void>;
   setActiveDashboard: (id: string) => void;
-  createDashboard: (name: string, themeId?: string, layoutColumns?: LayoutColumns) => Promise<Dashboard>;
+  createDashboard: (name: string, themeId?: string, layoutColumns?: LayoutColumns, icon?: string) => Promise<Dashboard>;
   updateDashboard: (dashboard: Dashboard) => Promise<void>;
   deleteDashboard: (id: string) => Promise<void>;
   reorderDashboards: (ids: string[]) => Promise<void>;
@@ -50,12 +50,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ activeDashboardId: id });
   },
 
-  createDashboard: async (name, themeId = BUILT_IN_THEMES[0].id, layoutColumns = 4) => {
+  createDashboard: async (name, themeId = BUILT_IN_THEMES[0].id, layoutColumns = 4, icon = 'LayoutDashboard') => {
     const now = new Date().toISOString();
     const { dashboards } = get();
     const dashboard: Dashboard = {
       id: generateId(),
       name,
+      icon,
       themeId,
       layoutColumns,
       wallpaper: null,

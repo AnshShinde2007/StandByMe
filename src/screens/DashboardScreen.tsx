@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
   Pressable,
   Platform,
 } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { NavigationBar } from 'expo-navigation-bar';
@@ -23,6 +24,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { WidgetGrid } from '../widgets/WidgetGrid';
 import { WidgetSettingsModal } from '../components/WidgetSettingsModal';
+import { XmbSwitcher } from '../components/XmbSwitcher';
 import { MainStackParamList } from '../navigation/MainNavigator';
 import { Dashboard } from '../types';
 
@@ -38,6 +40,8 @@ export const DashboardScreen: React.FC = () => {
   const theme = useTheme();
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStartX = useRef(0);
+  const [isXmbOpen, setIsXmbOpen] = useState(false);
+  const xmbProgress = useSharedValue(0);
 
   const dashboard = useDashboardStore((s) => s.dashboards.find((d) => d.id === s.activeDashboardId) ?? null);
   const switchToNext = useDashboardStore((s) => s.switchToNext);
@@ -76,7 +80,7 @@ export const DashboardScreen: React.FC = () => {
   }, [isEditing, hideNavigationBar, showNavigationBar]);
 
   useEffect(() => {
-    if (isEditing) {
+    if (isEditing || isXmbOpen) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       showNavigationBar();
     } else {
@@ -85,7 +89,7 @@ export const DashboardScreen: React.FC = () => {
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [isEditing, resetHideTimer, showNavigationBar]);
+  }, [isEditing, isXmbOpen, resetHideTimer, showNavigationBar]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,7 +114,13 @@ export const DashboardScreen: React.FC = () => {
             state.updateWidgetPosition(w.id, dashboard.id, 2, w.row, 2, 2);
           }
           const maxCols = dashboard.layoutColumns ?? 4;
-          if ((w.type === 'music_controls' || w.type === 'weather') && (w.colSpan !== maxCols || w.rowSpan !== 4)) {
+          const isFullScreenType = w.type === 'music_controls' || 
+                                   w.type === 'weather' || 
+                                   w.type === 'digital_clock' || 
+                                   w.type === 'analog_clock' || 
+                                   w.type === 'flip_clock';
+                                   
+          if (isFullScreenType && (w.colSpan !== maxCols || w.rowSpan !== 4)) {
             state.updateWidgetPosition(w.id, dashboard.id, 0, 0, maxCols, 4);
           }
         });
@@ -172,10 +182,33 @@ export const DashboardScreen: React.FC = () => {
 
   const bg = dashboard.wallpaper;
 
+  const handleOpenXmb = () => {
+    setIsXmbOpen(true);
+    xmbProgress.value = withSpring(1, { damping: 20, stiffness: 200 });
+  };
+
+  const handleCloseXmb = () => {
+    setIsXmbOpen(false);
+    xmbProgress.value = withSpring(0, { damping: 20, stiffness: 200 });
+  };
+
+  const animatedDashboardStyle = useAnimatedStyle(() => {
+    const scale = 1 - xmbProgress.value * 0.1; // scale to 0.9
+    return {
+      transform: [{ scale }],
+    };
+  });
+
+  const animatedOverlayStyle = useAnimatedStyle(() => {
+    return {
+      opacity: xmbProgress.value * 0.6,
+    };
+  });
+
   const content = (
     <Pressable 
       style={styles.fill} 
-      onLongPress={enterEditMode} 
+      onLongPress={handleOpenXmb} 
       onPressIn={resetHideTimer}
       delayLongPress={600}
     >
@@ -204,21 +237,35 @@ export const DashboardScreen: React.FC = () => {
     </Pressable>
   );
 
-  if (bg) {
-    return (
-      <ImageBackground source={{ uri: bg }} style={styles.fill} resizeMode="cover">
-        {/* Subtle dark overlay to make widgets pop against the wallpaper */}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]} />
-        {content}
-      </ImageBackground>
-    );
-  }
-
-  return (
-    <View style={[styles.fill, { backgroundColor: theme.colors.background }]}>
-      {content}
-    </View>
+  const wrappedContent = (
+    <>
+      <Animated.View style={[styles.fill, animatedDashboardStyle]}>
+        {bg ? (
+          <ImageBackground source={{ uri: bg }} style={styles.fill} resizeMode="cover">
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]} />
+            {content}
+          </ImageBackground>
+        ) : (
+          <View style={[styles.fill, { backgroundColor: theme.colors.background }]}>
+            {content}
+          </View>
+        )}
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'black' }, animatedOverlayStyle]} />
+      </Animated.View>
+      
+      {isXmbOpen && (
+        <XmbSwitcher
+          onClose={handleCloseXmb}
+          onEdit={() => {
+            handleCloseXmb();
+            enterEditMode();
+          }}
+        />
+      )}
+    </>
   );
+
+  return wrappedContent;
 };
 
 // ── Editor Overlay Bar ────────────────────────────────────────────────────────

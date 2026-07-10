@@ -11,6 +11,7 @@ const DASHBOARDS_TABLE = `
 CREATE TABLE IF NOT EXISTS dashboards (
   id              TEXT PRIMARY KEY,
   name            TEXT NOT NULL,
+  icon            TEXT NOT NULL DEFAULT 'LayoutDashboard',
   theme_id        TEXT NOT NULL DEFAULT 'amoled',
   layout_columns  INTEGER NOT NULL DEFAULT 4,
   wallpaper       TEXT,
@@ -104,6 +105,13 @@ export const initDb = async (): Promise<void> => {
   // Create all tables
   for (const sql of ALL_TABLES) {
     await _db.execAsync(sql);
+  }
+
+  // Ensure icon column exists (migration)
+  try {
+    await _db.execAsync("ALTER TABLE dashboards ADD COLUMN icon TEXT NOT NULL DEFAULT 'LayoutDashboard'");
+  } catch (e) {
+    // Column already exists
   }
 
   // Store schema version

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  Modal,
 } from 'react-native';
 import Animated, { 
   useSharedValue, 
@@ -15,10 +16,10 @@ import Animated, {
   FadeIn,
   runOnJS
 } from 'react-native-reanimated';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Widget } from '../../types';
 import { useTheme } from '../../theme/ThemeProvider';
-import { Play, Pause, SkipBack, SkipForward, Music, Lock, Headphones, Speaker, Bluetooth } from 'lucide-react-native';
+import { Play, Pause, SkipBack, SkipForward, Music, Lock, Headphones, Speaker, Bluetooth, Volume2 } from 'lucide-react-native';
 import {
   play,
   pause,
@@ -29,6 +30,7 @@ import {
   promptNotificationAccess,
   addMediaUpdateListener,
   MediaState,
+  setVolume,
 } from 'expo-media-session';
 
 interface Props {
@@ -83,6 +85,7 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
   const [hasPermission, setHasPermission] = useState<boolean>(false);
   const [mediaState, setMediaState] = useState<MediaState | null>(null);
   const [localPosition, setLocalPosition] = useState(0);
+  const [showVolumeDialog, setShowVolumeDialog] = useState(false);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Animated values
@@ -219,6 +222,58 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
     };
   });
 
+  // ── Volume Gestures ──────────────────────────────────────────────────────
+
+  const volumeAnim = useSharedValue(0);
+  const isVolumeDragging = useSharedValue(false);
+  const volumeTrackWidth = useSharedValue(0);
+
+  useEffect(() => {
+    if (mediaState && (mediaState.maxVolume ?? 0) > 0 && !isVolumeDragging.value) {
+      const volRatio = (mediaState.volume ?? 0) / mediaState.maxVolume!;
+      volumeAnim.value = withTiming(volRatio, { duration: 300 });
+    }
+  }, [mediaState?.volume, mediaState?.maxVolume]);
+
+  const handleVolumeChange = useCallback((ratio: number) => {
+    if (!mediaState || !mediaState.maxVolume) return;
+    const vol = Math.round(ratio * mediaState.maxVolume);
+    setVolume(vol);
+    setMediaState(prev => prev ? { ...prev, volume: vol } : prev);
+  }, [mediaState]);
+
+  const volumePanGesture = Gesture.Pan()
+    .onBegin(() => {
+      isVolumeDragging.value = true;
+    })
+    .onUpdate((e) => {
+      if (volumeTrackWidth.value > 0) {
+        const p = Math.max(0, Math.min(1, e.x / volumeTrackWidth.value));
+        volumeAnim.value = p;
+      }
+    })
+    .onEnd((e) => {
+      if (volumeTrackWidth.value > 0) {
+        const p = Math.max(0, Math.min(1, e.x / volumeTrackWidth.value));
+        runOnJS(handleVolumeChange)(p);
+      }
+      isVolumeDragging.value = false;
+    });
+
+  const volumeProgressStyle = useAnimatedStyle(() => ({
+    width: `${volumeAnim.value * 100}%`,
+  }));
+
+  const volumeThumbStyle = useAnimatedStyle(() => {
+    return {
+      left: `${volumeAnim.value * 100}%`,
+      transform: [
+        { translateX: -8 },
+        { scale: isVolumeDragging.value ? withSpring(1.5) : withSpring(1) }
+      ]
+    };
+  });
+
   // ── Render: Empty states ────────────────────────────────────────────────
 
   if (Platform.OS !== 'android') {
@@ -293,7 +348,11 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
         
         {/* Top: Info */}
         <View style={styles.infoArea}>
-          <View style={styles.deviceRow}>
+          <TouchableOpacity 
+            style={styles.deviceRow}
+            onLongPress={() => setShowVolumeDialog(true)}
+            delayLongPress={400}
+          >
             <Music color={theme.colors.textMuted} size={14} />
             <Text style={[styles.deviceSeparator, { color: theme.colors.textMuted }]}>•</Text>
             {outputDeviceType === 'Bluetooth' ? (
@@ -306,7 +365,7 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
             <Text style={[styles.deviceName, { color: theme.colors.textMuted }]}>
               {outputDeviceName || 'Speaker'}
             </Text>
-          </View>
+          </TouchableOpacity>
           
           <Animated.Text
             key={title}
@@ -380,6 +439,43 @@ export const MusicControlsWidget: React.FC<Props> = ({ widget }) => {
           </View>
         )}
       </View>
+
+      {/* Volume Dialog */}
+      <Modal
+        visible={showVolumeDialog}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowVolumeDialog(false)}
+      >
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowVolumeDialog(false)}
+          >
+            <TouchableOpacity 
+              activeOpacity={1} 
+              style={[styles.volumeDialog, { backgroundColor: theme.colors.surfaceAlt }]}
+            >
+              <Text style={[styles.volumeDialogTitle, { color: theme.colors.text }]}>Volume</Text>
+              <View style={styles.volumeArea}>
+                <Volume2 color={theme.colors.text} size={24} />
+                <GestureDetector gesture={volumePanGesture}>
+                  <View 
+                    style={[styles.progressHitSlop, { flex: 1 }]}
+                    onLayout={(e) => { volumeTrackWidth.value = e.nativeEvent.layout.width; }}
+                  >
+                    <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
+                      <Animated.View style={[styles.progressFill, { backgroundColor: theme.colors.text }, volumeProgressStyle]} />
+                      <Animated.View style={[styles.progressThumb, { backgroundColor: theme.colors.text }, volumeThumbStyle]} />
+                    </View>
+                  </View>
+                </GestureDetector>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </GestureHandlerRootView>
+      </Modal>
     </View>
   );
 };
@@ -486,6 +582,14 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 8,
   },
+  volumeArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+    paddingHorizontal: 8,
+    marginTop: -8,
+  },
   progressHitSlop: {
     paddingVertical: 12,
     justifyContent: 'center',
@@ -556,5 +660,30 @@ const styles = StyleSheet.create({
   grantBtnText: {
     fontWeight: '700',
     fontSize: 16,
+  },
+  // --- Modal ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  volumeDialog: {
+    width: '85%',
+    maxWidth: 400,
+    padding: 32,
+    borderRadius: 32,
+    gap: 16,
+    elevation: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+  },
+  volumeDialogTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
   },
 });

@@ -66,6 +66,7 @@ export type AutomationTrigger =
 export interface Dashboard {
   id: string;
   name: string;
+  icon: string;
   themeId: string;
   layoutColumns: LayoutColumns;
   wallpaper: string | null; // URI or null for theme bg

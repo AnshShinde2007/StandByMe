@@ -23,6 +23,10 @@ export interface MediaState {
   outputDeviceType?: string;
   /** Actual name of the audio device, e.g. "AirPods", "Speaker" */
   outputDeviceName?: string;
+  /** Current volume level */
+  volume?: number;
+  /** Maximum volume level */
+  maxVolume?: number;
 }
 
 // ─── Playback Commands ────────────────────────────────────────────────────────
@@ -51,6 +55,11 @@ export function previous(): void {
 /** Seek to a position in the track @param positionSeconds in seconds */
 export function seekTo(positionSeconds: number): void {
   ExpoMediaSessionModule.seekTo(Math.floor(positionSeconds));
+}
+
+/** Set the media playback volume */
+export function setVolume(volume: number): void {
+  ExpoMediaSessionModule.setVolume(volume);
 }
 
 // ─── Permission Helpers ───────────────────────────────────────────────────────
